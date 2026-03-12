@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CryptoTracker Pro - Terminal Live</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0b0e11; color: #eaecef; overflow-x: hidden; }
+        
+        .cmc-table-row { cursor: pointer; transition: all 0.2s; border-bottom: 1px solid #2b3139; }
+        .cmc-table-row:hover { background-color: #1e2329; }
+        .negative-price { color: #f6465d; }
+        .positive-price { color: #0ecb81; }
+        
+        @keyframes flash-green { from { background-color: rgba(14, 203, 129, 0.2); } to { background-color: transparent; } }
+        @keyframes flash-red { from { background-color: rgba(246, 70, 93, 0.2); } to { background-color: transparent; } }
+        .price-up { animation: flash-green 0.5s ease-out; }
+        .price-down { animation: flash-red 0.5s ease-out; }
+
+        #chart-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-timeframe {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #2b3139;
+            color: #848e9c;
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+        .btn-timeframe.active {
+            background: #f3ba2f;
+            color: #000;
+        }
+
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            background-color: #1e2329;
+            min-width: 200px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5);
+            z-index: 110;
+            border: 1px solid #474d57;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+        .dropdown:hover .dropdown-content { display: block; }
+        .indicator-item {
+            padding: 10px 16px;
+            font-size: 13px;
+            color: #eaecef;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .indicator-item:hover { background-color: #2b3139; }
+        .indicator-item.active { color: #f3ba2f; }
+        .indicator-item.active i { display: block; }
+        .indicator-item i { display: none; font-size: 10px; }
+
+        #fg-index-container {
+            display: flex;
+            align-items: center;
+            padding: 4px 12px;
+            background: #2b3139;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: default;
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0b0e11; }
+        ::-webkit-scrollbar-thumb { background: #474d57; border-radius: 10px; }
+    </style>
+</head>
+<body>
+
+    <nav class="bg-[#181a20] border-b border-[#2b3139] sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+            <div class="flex items-center space-x-4 md:space-x-6">
+                <div class="flex items-center space-x-2">
+                    <span class="text-lg font-bold hidden sm:inline">HOLD<span class="text-[#f3ba2f]">LER</span></span>
+                </div>
+                
+                <div id="fg-index-container" class="border border-[#474d57] space-x-2">
+                    <span class="text-[#848e9c] text-[10px] uppercase">Sentimento:</span>
+                    <span id="fg-value" class="text-white">--</span>
+                    <span id="fg-label" class="px-2 py-0.5 rounded text-[10px] uppercase bg-gray-700 text-gray-300">A carregar...</span>
+                </div>
+            </div>
+            
+            <div class="relative">
+                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"></i>
+                <input type="text" id="searchInput" placeholder="Procurar par..." class="pl-9 pr-4 py-1.5 bg-[#2b3139] border-none rounded text-sm focus:ring-1 focus:ring-[#f3ba2f] w-32 md:w-64 text-white">
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        <div class="bg-[#181a20] rounded-lg border border-[#2b3139] overflow-hidden shadow-xl">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-[#2b3139] text-[11px] uppercase text-[#848e9c] font-bold">
+                        <tr>
+                            <th class="px-6 py-4">Par</th>
+                            <th class="px-6 py-4 text-right">Preço</th>
+                            <th class="px-6 py-4 text-right">Variação 24h</th>
+                            <th class="px-6 py-4 text-right">Máxima / Mínima</th>
+                            <th class="px-6 py-4 text-right">Volume</th>
+                        </tr>
+                    </thead>
+                    <tbody id="crypto-table-body" class="text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal do Gráfico com Indicadores -->
+    <div id="chart-modal" onclick="closeChart()">
+        <div class="bg-[#181a20] w-[98vw] h-[95vh] md:w-[96vw] md:h-[92vh] rounded-lg shadow-2xl flex flex-col overflow-hidden border border-[#2b3139]" onclick="event.stopPropagation()">
+            
+            <div class="p-3 border-b border-[#2b3139] flex flex-wrap items-center justify-between gap-4 bg-[#1e2329]">
+                <div class="flex items-center space-x-4">
+                    <span id="modal-coin-name" class="text-lg font-bold">---</span>
+                    <span id="live-price-badge" class="font-mono font-bold text-xl">---</span>
+                </div>
+
+                <div class="flex items-center bg-[#0b0e11] p-1 rounded space-x-1 border border-[#2b3139]">
+                    <button class="btn-timeframe" onclick="changeTimeframe('15m', this)">15m</button>
+                    <button class="btn-timeframe active" onclick="changeTimeframe('1h', this)">1h</button>
+                    <button class="btn-timeframe" onclick="changeTimeframe('4h', this)">4h</button>
+                    <button class="btn-timeframe" onclick="changeTimeframe('1d', this)">1d</button>
+                    <button class="btn-timeframe" onclick="changeTimeframe('1w', this)">1w</button>
+                </div>
+
+                <div class="dropdown">
+                    <button class="bg-[#2b3139] text-white px-4 py-1.5 rounded text-sm font-semibold flex items-center space-x-2 border border-[#474d57] hover:bg-[#353b44]">
+                        <span>Indicadores</span>
+                        <i class="fas fa-chevron-down text-[10px]"></i>
+                    </button>
+                    <div class="dropdown-content">
+                        <div class="indicator-item" id="item-MA" onclick="toggleIndicator('MA')">
+                            Média Móvel (20) <i class="fas fa-check"></i>
+                        </div>
+                        <div class="indicator-item" id="item-BB" onclick="toggleIndicator('BB')">
+                            Bandas de Bollinger <i class="fas fa-check"></i>
+                        </div>
+                        <div class="indicator-item" id="item-VOL" onclick="toggleIndicator('VOL')">
+                            Volume <i class="fas fa-check"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="closeChart()" class="text-[#848e9c] hover:text-white text-xl p-2">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div id="chart-wrapper" class="flex-1 relative bg-[#0b0e11]">
+                <div id="main-chart-container" class="w-full h-full"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BINANCE_REST_24H = 'https://api.binance.com/api/v3/ticker/24hr';
+        const BINANCE_WS_BASE = 'wss://stream.binance.com:9443/ws';
+        const FEAR_GREED_API = 'https://api.alternative.me/fng/';
+        
+        let allCoins = [];
+        let tableWS = null, chartWS = null;
+        let chart = null, candleSeries = null;
+        let currentSymbol = '', currentTimeframe = '1h';
+        let indicators = { MA: false, BB: false, VOL: false };
+        let activeSeries = {}; 
+        let lastPrices = {};
+
+        const fngTranslations = {
+            "Extreme Fear": "Medo Extremo", "Fear": "Medo", "Neutral": "Neutro",
+            "Greed": "Ganância", "Extreme Greed": "Ganância Extrema"
+        };
+
+        function getCoinLogoUrl(symbol) {
+            const coin = symbol.replace('USDT', '').toLowerCase();
+            return `https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${coin}.png`;
+        }
+
+        async function initFearAndGreed() {
+            try {
+                const res = await fetch(FEAR_GREED_API);
+                const data = await res.json();
+                const fng = data.data[0];
+                const val = parseInt(fng.value);
+                const label = fngTranslations[fng.value_classification] || fng.value_classification;
+                document.getElementById('fg-value').innerText = val;
+                const labelEl = document.getElementById('fg-label');
+                labelEl.innerText = label;
+                let color = "bg-[#848e9c]";
+                if (val <= 25) color = "bg-[#f6465d]";
+                else if (val <= 45) color = "bg-[#ff9800]";
+                else if (val <= 75) color = "bg-[#0ecb81]";
+                else if (val > 75) color = "bg-[#00ffad]";
+                labelEl.className = `px-2 py-0.5 rounded text-[10px] uppercase ${color} text-white font-bold`;
+            } catch (e) {}
+        }
+
+        async function initTable() {
+            try {
+                const res = await fetch(BINANCE_REST_24H);
+                const data = await res.json();
+                allCoins = data.filter(i => i.symbol.endsWith('USDT'))
+                              .sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+                              .slice(0, 50);
+                renderTableStructure();
+                connectTableWS();
+                initFearAndGreed();
+            } catch(e) { console.error(e); }
+        }
+
+        function renderTableStructure() {
+            const tbody = document.getElementById('crypto-table-body');
+            tbody.innerHTML = allCoins.map(c => {
+                const symbolOnly = c.symbol.replace('USDT','');
+                return `
+                <tr class="cmc-table-row" id="row-${c.symbol}" onclick="openChart('${c.symbol}')">
+                    <td class="px-6 py-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-8 h-8 flex-shrink-0 bg-[#2b3139] rounded-full overflow-hidden flex items-center justify-center border border-[#474d57]">
+                                <img src="${getCoinLogoUrl(c.symbol)}" onerror="this.src='https://ui-avatars.com/api/?name=${symbolOnly}&background=2b3139&color=fff'" class="w-full h-full object-contain">
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="font-bold text-white leading-none">${symbolOnly}</span>
+                                <span class="text-[#848e9c] text-[10px] mt-1">USDT</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-right font-mono font-bold" id="price-${c.symbol}">$${parseFloat(c.lastPrice).toLocaleString()}</td>
+                    <td class="px-6 py-4 text-right font-bold ${parseFloat(c.priceChangePercent) >= 0 ? 'positive-price' : 'negative-price'}">${parseFloat(c.priceChangePercent).toFixed(2)}%</td>
+                    <td class="px-6 py-4 text-right text-[#848e9c] font-mono text-xs">$${parseFloat(c.highPrice).toLocaleString()} / $${parseFloat(c.lowPrice).toLocaleString()}</td>
+                    <td class="px-6 py-4 text-right text-[#848e9c] font-mono">$${Math.round(parseFloat(c.quoteVolume)).toLocaleString()}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function connectTableWS() {
+            if (tableWS) tableWS.close();
+            tableWS = new WebSocket(`${BINANCE_WS_BASE}/!miniTicker@arr`);
+            tableWS.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+                data.forEach(item => {
+                    const priceCell = document.getElementById(`price-${item.s}`);
+                    if (priceCell) {
+                        const newPrice = parseFloat(item.c);
+                        const oldPrice = lastPrices[item.s] || newPrice;
+                        if (newPrice > oldPrice) priceCell.classList.add('price-up');
+                        else if (newPrice < oldPrice) priceCell.classList.add('price-down');
+                        setTimeout(() => priceCell.classList.remove('price-up', 'price-down'), 400);
+                        priceCell.innerText = `$${newPrice.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+                        lastPrices[item.s] = newPrice;
+                    }
+                });
+            };
+        }
+
+        function openChart(symbol) {
+            currentSymbol = symbol;
+            document.getElementById('chart-modal').style.display = 'flex';
+            document.getElementById('modal-coin-name').innerText = symbol;
+            setTimeout(() => initChart(), 100);
+        }
+
+        function closeChart() {
+            document.getElementById('chart-modal').style.display = 'none';
+            if (chartWS) chartWS.close();
+            if (chart) { chart.remove(); chart = null; }
+            activeSeries = {};
+        }
+
+        async function initChart() {
+            const container = document.getElementById('main-chart-container');
+            container.innerHTML = '';
+            activeSeries = {};
+
+            chart = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: container.clientHeight,
+                layout: { background: { color: '#0b0e11' }, textColor: '#d1d4dc' },
+                grid: { vertLines: { color: '#1e2329' }, horzLines: { color: '#1e2329' } },
+                timeScale: { borderColor: '#2b3139', timeVisible: true }
+            });
+
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#0ecb81', downColor: '#f6465d', borderVisible: false,
+                wickUpColor: '#0ecb81', wickDownColor: '#f6465d'
+            });
+
+            const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${currentSymbol}&interval=${currentTimeframe}&limit=300`);
+            const data = await res.json();
+            const candles = data.map(d => ({
+                time: d[0] / 1000,
+                open: parseFloat(d[1]), high: parseFloat(d[2]),
+                low: parseFloat(d[3]), close: parseFloat(d[4]), volume: parseFloat(d[5])
+            }));
+            candleSeries.setData(candles);
+            
+            // Reaplicar Indicadores
+            applyIndicators(candles);
+
+            if (chartWS) chartWS.close();
+            chartWS = new WebSocket(`${BINANCE_WS_BASE}/${currentSymbol.toLowerCase()}@kline_${currentTimeframe}`);
+            chartWS.onmessage = (e) => {
+                const k = JSON.parse(e.data).k;
+                const update = { time: k.t / 1000, open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c) };
+                candleSeries.update(update);
+                document.getElementById('live-price-badge').innerText = `$${update.close.toLocaleString()}`;
+                document.getElementById('live-price-badge').className = `font-mono font-bold text-xl ${update.close >= update.open ? 'positive-price' : 'negative-price'}`;
+            };
+            chart.timeScale().fitContent();
+        }
+
+        function applyIndicators(data) {
+            if (indicators.MA) {
+                activeSeries.MA = chart.addLineSeries({ color: '#f3ba2f', lineWidth: 1 });
+                activeSeries.MA.setData(calculateMA(data, 20));
+            }
+            if (indicators.BB) {
+                const bb = calculateBB(data, 20, 2);
+                activeSeries.BB_up = chart.addLineSeries({ color: '#FF0000', lineWidth: 1 });
+                activeSeries.BB_low = chart.addLineSeries({ color: '#00FF00', lineWidth: 1 });
+                activeSeries.BB_up.setData(bb.upper);
+                activeSeries.BB_low.setData(bb.lower);
+            }
+            if (indicators.VOL) {
+                activeSeries.VOL = chart.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: '' });
+                activeSeries.VOL.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+                activeSeries.VOL.setData(data.map(d => ({
+                    time: d.time, value: d.volume, color: d.close >= d.open ? 'rgba(14, 203, 129, 0.3)' : 'rgba(246, 70, 93, 0.3)'
+                })));
+            }
+        }
+
+        function toggleIndicator(type) {
+            indicators[type] = !indicators[type];
+            document.getElementById(`item-${type}`).classList.toggle('active');
+            initChart();
+        }
+
+        function changeTimeframe(tf, btn) {
+            currentTimeframe = tf;
+            document.querySelectorAll('.btn-timeframe').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            initChart();
+        }
+
+        function calculateMA(data, period) {
+            return data.map((val, i) => {
+                if (i < period) return null;
+                const sum = data.slice(i - period, i).reduce((a, b) => a + b.close, 0);
+                return { time: val.time, value: sum / period };
+            }).filter(x => x);
+        }
+
+        function calculateBB(data, period, stdDev) {
+            const upper = [], lower = [];
+            data.forEach((val, i) => {
+                if (i < period) return;
+                const slice = data.slice(i - period, i);
+                const avg = slice.reduce((a, b) => a + b.close, 0) / period;
+                const sd = Math.sqrt(slice.reduce((a, b) => a + Math.pow(b.close - avg, 2), 0) / period);
+                upper.push({ time: val.time, value: avg + (sd * stdDev) });
+                lower.push({ time: val.time, value: avg - (sd * stdDev) });
+            });
+            return { upper, lower };
+        }
+
+        initTable();
+    </script>
+</body>
+</html>
