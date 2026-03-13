@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CryptoTracker Pro - Mobile Terminal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg-main: #0b0e11;
+            --bg-card: #181a20;
+            --bg-hover: #1e2329;
+            --text-main: #eaecef;
+            --text-muted: #848e9c;
+            --binance-yellow: #f3ba2f;
+            --up-color: #0ecb81;
+            --down-color: #f6465d;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            margin: 0;
+            -webkit-tap-highlight-color: transparent;
+            overflow-x: hidden;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        /* Tabela Responsiva */
+        .cmc-table-row { cursor: pointer; transition: background 0.2s; border-bottom: 1px solid #2b3139; }
+        .cmc-table-row:active { background-color: var(--bg-hover); }
+
+        .negative-price { color: var(--down-color); }
+        .positive-price { color: var(--up-color); }
+
+        @keyframes flash-green { from { background-color: rgba(14, 203, 129, 0.2); } to { background-color: transparent; } }
+        @keyframes flash-red { from { background-color: rgba(246, 70, 93, 0.2); } to { background-color: transparent; } }
+        .price-up { animation: flash-green 0.6s ease-out; }
+        .price-down { animation: flash-red 0.6s ease-out; }
+
+        /* Modal Fullscreen Mobile */
+        #chart-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: var(--bg-main);
+            z-index: 2000; /* Acima da bottom bar */
+            flex-direction: column;
+        }
+
+        .btn-timeframe {
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            background: #2b3139;
+            color: var(--text-muted);
+            transition: all 0.2s;
+        }
+        .btn-timeframe.active {
+            background: var(--binance-yellow);
+            color: #000;
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background-color: var(--bg-card);
+            min-width: 220px;
+            box-shadow: 0px 12px 24px rgba(0,0,0,0.5);
+            z-index: 2100;
+            border: 1px solid #474d57;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .dropdown:hover .dropdown-content { display: block; }
+
+        .indicator-item {
+            padding: 14px 20px;
+            font-size: 14px;
+            border-bottom: 1px solid #2b3139;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .indicator-item.active { color: var(--binance-yellow); }
+        .indicator-item i { display: none; }
+        .indicator-item.active i { display: block; }
+
+        /* Estilo Dinâmico Medo e Ganância */
+        .fng-extreme-fear { color: #f6465d; border-color: #f6465d; }
+        .fng-fear { color: #ff7043; border-color: #ff7043; }
+        .fng-neutral { color: #f3ba2f; border-color: #f3ba2f; }
+        .fng-greed { color: #0ecb81; border-color: #0ecb81; }
+        .fng-extreme-greed { color: #00ffad; border-color: #00ffad; }
+
+        /* Otimização de toque para mobile */
+        @media (max-width: 768px) {
+            .hide-mobile { display: none; }
+            .btn-timeframe { padding: 10px 14px; font-size: 13px; }
+            th, td { padding: 12px 8px !important; }
+            .dropdown-content { right: -50px; width: 250px; }
+            
+            /* Ajuste de espaço para a bottom bar */
+            main { padding-bottom: 80px; }
+        }
+
+        #main-chart-container { width: 100%; height: 100%; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+
+        /* Estilos da Bottom Bar */
+        .bottom-nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            height: 100%;
+            color: var(--text-muted);
+            font-size: 10px;
+            font-weight: 600;
+            gap: 4px;
+            transition: color 0.2s;
+        }
+        .bottom-nav-item.active {
+            color: var(--binance-yellow);
+        }
+        .bottom-nav-item i {
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="bg-[#181a20] border-b border-[#2b3139] sticky top-0 z-50 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <span class="text-xl font-black tracking-tighter">BIN<span class="text-[var(--binance-yellow)]">PRO</span></span>
+                <!-- Componente de Medo e Ganância Corrigido -->
+                <div id="fg-index-container" class="flex border border-[#474d57] rounded-full px-3 py-1 space-x-2 items-center transition-all duration-500">
+                    <span id="fg-value" class="font-bold text-xs">--</span>
+                    <span id="fg-label" class="text-[9px] uppercase font-bold opacity-80">Loading...</span>
+                </div>
+            </div>
+            
+            <div class="relative flex-1 max-w-[150px] sm:max-w-xs ml-2">
+                <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs"></i>
+                <input type="text" id="searchInput" placeholder="Procurar..." class="w-full pl-9 pr-4 py-2 bg-[#2b3139] border-none rounded-lg text-sm focus:ring-1 focus:ring-[var(--binance-yellow)] text-white placeholder-gray-500">
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto p-2 sm:p-6">
+        <div class="bg-[#181a20] rounded-xl border border-[#2b3139] overflow-hidden shadow-2xl">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-[#1e2329] text-[10px] uppercase text-[#848e9c] tracking-wider">
+                        <tr>
+                            <th class="px-4 py-4 font-bold">Ativo</th>
+                            <th class="px-4 py-4 text-right font-bold">Preço</th>
+                            <th class="px-4 py-4 text-right font-bold">Variação</th>
+                            <th class="px-4 py-4 text-right font-bold hide-mobile">Vol 24h</th>
+                        </tr>
+                    </thead>
+                    <tbody id="crypto-table-body" class="divide-y divide-[#2b3139]">
+                        <!-- JS Load -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom Navigation Bar (Mobile) -->
+    <nav class="fixed bottom-0 left-0 right-0 h-16 bg-[#181a20] border-t border-[#2b3139] flex items-center z-[1000] md:hidden">
+        <button class="bottom-nav-item active" onclick="switchTab(this)">
+            <i class="fas fa-chart-line"></i>
+            <span>Mercados</span>
+        </button>
+        <button class="bottom-nav-item" onclick="switchTab(this)">
+            <i class="fas fa-exchange-alt"></i>
+            <span>Trades</span>
+        </button>
+        <button class="bottom-nav-item" onclick="switchTab(this)">
+            <i class="fas fa-wallet"></i>
+            <span>Carteira</span>
+        </button>
+        <button class="bottom-nav-item" onclick="switchTab(this)">
+            <i class="fas fa-ellipsis-h"></i>
+            <span>Mais</span>
+        </button>
+    </nav>
+
+    <!-- Modal do Gráfico 100% Mobile -->
+    <div id="chart-modal">
+        <div class="p-3 bg-[#1e2329] border-b border-[#2b3139] flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <button onclick="closeChart()" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#2b3139]">
+                    <i class="fas fa-arrow-left text-lg"></i>
+                </button>
+                <div>
+                    <div id="modal-coin-name" class="text-xs font-bold text-[#848e9c] uppercase">---</div>
+                    <div id="live-price-badge" class="mono text-xl font-bold leading-tight">---</div>
+                </div>
+            </div>
+            
+            <div class="dropdown relative">
+                <button class="w-10 h-10 flex items-center justify-center bg-[#2b3139] rounded-lg">
+                    <i class="fas fa-layer-group text-sm"></i>
+                </button>
+                <div class="dropdown-content">
+                    <div class="indicator-item" id="item-MA" onclick="toggleIndicator('MA')">
+                        <span>Média Móvel (20)</span> <i class="fas fa-check"></i>
+                    </div>
+                    <div class="indicator-item" id="item-BB" onclick="toggleIndicator('BB')">
+                        <span>Bollinger Bands</span> <i class="fas fa-check"></i>
+                    </div>
+                    <div class="indicator-item" id="item-VOL" onclick="toggleIndicator('VOL')">
+                        <span>Volume Histórico</span> <i class="fas fa-check"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-3 py-2 bg-[#0b0e11] flex items-center border-b border-[#2b3139] overflow-x-auto no-scrollbar">
+            <div class="flex space-x-1">
+                <button class="btn-timeframe" onclick="changeTimeframe('15m', this)">15m</button>
+                <button class="btn-timeframe active" onclick="changeTimeframe('1h', this)">1h</button>
+                <button class="btn-timeframe" onclick="changeTimeframe('4h', this)">4h</button>
+                <button class="btn-timeframe" onclick="changeTimeframe('1d', this)">1d</button>
+                <button class="btn-timeframe" onclick="changeTimeframe('1w', this)">1w</button>
+            </div>
+        </div>
+
+        <div id="chart-wrapper" class="flex-1 overflow-hidden relative">
+            <div id="main-chart-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const BINANCE_REST_24H = 'https://api.binance.com/api/v3/ticker/24hr';
+        const BINANCE_WS_BASE = 'wss://stream.binance.com:9443/ws';
+        const FNG_API = 'https://api.alternative.me/fng/?limit=1';
+
+        let allCoins = [];
+        let tableWS = null, chartWS = null;
+        let chart = null, candleSeries = null;
+        let currentSymbol = '', currentTimeframe = '1h';
+        let indicators = { MA: false, BB: false, VOL: false };
+        let activeSeries = {}; 
+        let lastPrices = {};
+
+        // Lógica de alternar abas da Bottom Nav
+        function switchTab(el) {
+            document.querySelectorAll('.bottom-nav-item').forEach(item => item.classList.remove('active'));
+            el.classList.add('active');
+            // Aqui você poderia adicionar a lógica para trocar de tela/conteúdo
+        }
+
+        const resizeObserver = new ResizeObserver(entries => {
+            if (entries.length === 0 || !chart) return;
+            const { width, height } = entries[0].contentRect;
+            chart.applyOptions({ width, height });
+        });
+
+        async function updateFearGreed() {
+            const container = document.getElementById('fg-index-container');
+            const valEl = document.getElementById('fg-value');
+            const labelEl = document.getElementById('fg-label');
+
+            try {
+                const res = await fetch(FNG_API);
+                const data = await res.json();
+                const fng = data.data[0];
+                const value = parseInt(fng.value);
+                const label = fng.value_classification;
+
+                valEl.innerText = value;
+                labelEl.innerText = label;
+
+                container.className = 'flex border rounded-full px-3 py-1 space-x-2 items-center transition-all duration-500 ';
+                if (value <= 25) container.classList.add('fng-extreme-fear');
+                else if (value <= 45) container.classList.add('fng-fear');
+                else if (value <= 55) container.classList.add('fng-neutral');
+                else if (value <= 75) container.classList.add('fng-greed');
+                else container.classList.add('fng-extreme-greed');
+
+            } catch (e) {
+                valEl.innerText = "??";
+                labelEl.innerText = "API Offline";
+            }
+        }
+
+        async function initTable() {
+            try {
+                const res = await fetch(BINANCE_REST_24H);
+                const data = await res.json();
+                allCoins = data.filter(i => i.symbol.endsWith('USDT'))
+                              .sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+                              .slice(0, 50);
+                renderTable();
+                connectTableWS();
+                updateFearGreed();
+            } catch(e) { console.error("Erro ao carregar mercado."); }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('crypto-table-body');
+            tbody.innerHTML = allCoins.map(c => {
+                const symbolOnly = c.symbol.replace('USDT','');
+                const isPositive = parseFloat(c.priceChangePercent) >= 0;
+                
+                return `
+                <tr class="cmc-table-row" onclick="openChart('${c.symbol}')">
+                    <td class="px-4 py-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-8 h-8 rounded-full bg-[#2b3139] flex items-center justify-center overflow-hidden border border-[#474d57]">
+                                <img src="https://raw.githubusercontent.com/spothq/cryptocurrency-icons/master/128/color/${symbolOnly.toLowerCase()}.png" 
+                                      onerror="this.src='https://ui-avatars.com/api/?name=${symbolOnly}&background=2b3139&color=fff'" 
+                                      class="w-5 h-5 object-contain">
+                            </div>
+                            <span class="font-bold text-white text-sm tracking-tight">${symbolOnly}</span>
+                        </div>
+                    </td>
+                    <td class="px-4 py-4 text-right mono font-bold text-sm" id="price-${c.symbol}">
+                        $${parseFloat(c.lastPrice).toLocaleString()}
+                    </td>
+                    <td class="px-4 py-4 text-right font-bold text-xs ${isPositive ? 'positive-price' : 'negative-price'}">
+                        ${isPositive ? '+' : ''}${parseFloat(c.priceChangePercent).toFixed(2)}%
+                    </td>
+                    <td class="px-4 py-4 text-right text-[#848e9c] mono text-[10px] hide-mobile">
+                        $${Math.round(parseFloat(c.quoteVolume)/1000000).toLocaleString()}M
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function connectTableWS() {
+            if (tableWS) tableWS.close();
+            tableWS = new WebSocket(`${BINANCE_WS_BASE}/!miniTicker@arr`);
+            tableWS.onmessage = (e) => {
+                JSON.parse(e.data).forEach(item => {
+                    const cell = document.getElementById(`price-${item.s}`);
+                    if (cell) {
+                        const val = parseFloat(item.c);
+                        const old = lastPrices[item.s] || val;
+                        if (val > old) cell.className = 'px-4 py-4 text-right mono font-bold text-sm price-up';
+                        else if (val < old) cell.className = 'px-4 py-4 text-right mono font-bold text-sm price-down';
+                        cell.innerText = `$${val.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 4})}`;
+                        lastPrices[item.s] = val;
+                    }
+                });
+            };
+        }
+
+        function openChart(symbol) {
+            currentSymbol = symbol;
+            document.getElementById('chart-modal').style.display = 'flex';
+            document.getElementById('modal-coin-name').innerText = symbol + " / USDT PERPETUAL";
+            resizeObserver.observe(document.getElementById('chart-wrapper'));
+            setTimeout(() => initChart(), 100);
+        }
+
+        function closeChart() {
+            document.getElementById('chart-modal').style.display = 'none';
+            resizeObserver.disconnect();
+            if (chartWS) chartWS.close();
+            if (chart) { chart.remove(); chart = null; }
+            activeSeries = {};
+        }
+
+        async function initChart() {
+            const container = document.getElementById('main-chart-container');
+            container.innerHTML = '';
+            activeSeries = {};
+
+            chart = LightweightCharts.createChart(container, {
+                layout: { background: { color: '#0b0e11' }, textColor: '#848e9c', fontSize: 11 },
+                grid: { vertLines: { color: '#161a1e' }, horzLines: { color: '#161a1e' } },
+                crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                rightPriceScale: { borderColor: '#2b3139', autoScale: true },
+                timeScale: { borderColor: '#2b3139', timeVisible: true }
+            });
+
+            candleSeries = chart.addCandlestickSeries({
+                upColor: '#0ecb81', downColor: '#f6465d', borderVisible: false,
+                wickUpColor: '#0ecb81', wickDownColor: '#f6465d'
+            });
+
+            const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${currentSymbol}&interval=${currentTimeframe}&limit=500`);
+            const data = await res.json();
+            const candles = data.map(d => ({
+                time: d[0] / 1000,
+                open: parseFloat(d[1]), high: parseFloat(d[2]),
+                low: parseFloat(d[3]), close: parseFloat(d[4]), volume: parseFloat(d[5])
+            }));
+            
+            candleSeries.setData(candles);
+            applyIndicators(candles);
+
+            if (chartWS) chartWS.close();
+            chartWS = new WebSocket(`${BINANCE_WS_BASE}/${currentSymbol.toLowerCase()}@kline_${currentTimeframe}`);
+            chartWS.onmessage = (e) => {
+                const k = JSON.parse(e.data).k;
+                const up = { time: k.t / 1000, open: parseFloat(k.o), high: parseFloat(k.h), low: parseFloat(k.l), close: parseFloat(k.c) };
+                candleSeries.update(up);
+                const badge = document.getElementById('live-price-badge');
+                badge.innerText = `$${up.close.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
+                badge.style.color = up.close >= up.open ? '#0ecb81' : '#f6465d';
+            };
+            chart.timeScale().fitContent();
+        }
+
+        function applyIndicators(data) {
+            if (indicators.MA) {
+                activeSeries.MA = chart.addLineSeries({ color: '#f3ba2f', lineWidth: 1, title: 'MA 20' });
+                activeSeries.MA.setData(calculateMA(data, 20));
+            }
+            if (indicators.BB) {
+                const bb = calculateBB(data, 20, 2);
+                activeSeries.BB_u = chart.addLineSeries({ color: 'rgba(33, 150, 243, 0.4)', lineWidth: 1 });
+                activeSeries.BB_l = chart.addLineSeries({ color: 'rgba(33, 150, 243, 0.4)', lineWidth: 1 });
+                activeSeries.BB_u.setData(bb.upper);
+                activeSeries.BB_l.setData(bb.lower);
+            }
+            if (indicators.VOL) {
+                activeSeries.VOL = chart.addHistogramSeries({ color: '#26a69a', priceFormat: { type: 'volume' }, priceScaleId: '' });
+                activeSeries.VOL.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+                activeSeries.VOL.setData(data.map(d => ({
+                    time: d.time, value: d.volume, color: d.close >= d.open ? 'rgba(14, 203, 129, 0.2)' : 'rgba(246, 70, 93, 0.2)'
+                })));
+            }
+        }
+
+        function calculateMA(data, p) {
+            return data.map((v, i) => {
+                if (i < p) return null;
+                return { time: v.time, value: data.slice(i-p, i).reduce((a, b) => a + b.close, 0) / p };
+            }).filter(x => x);
+        }
+
+        function calculateBB(data, p, s) {
+            const upper = [], lower = [];
+            data.forEach((v, i) => {
+                if (i < p) return;
+                const slice = data.slice(i-p, i);
+                const avg = slice.reduce((a, b) => a + b.close, 0) / p;
+                const sd = Math.sqrt(slice.reduce((a, b) => a + Math.pow(b.close - avg, 2), 0) / p);
+                upper.push({ time: v.time, value: avg + (sd * s) });
+                lower.push({ time: v.time, value: avg - (sd * s) });
+            });
+            return { upper, lower };
+        }
+
+        function toggleIndicator(t) {
+            indicators[t] = !indicators[t];
+            document.getElementById(`item-${t}`).classList.toggle('active');
+            initChart();
+        }
+
+        function changeTimeframe(tf, btn) {
+            currentTimeframe = tf;
+            document.querySelectorAll('.btn-timeframe').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            initChart();
+        }
+
+        document.getElementById('searchInput').oninput = (e) => {
+            const term = e.target.value.toUpperCase();
+            document.querySelectorAll('.cmc-table-row').forEach(row => {
+                row.style.display = row.innerText.includes(term) ? '' : 'none';
+            });
+        };
+
+        initTable();
+    </script>
+</body>
+</html>
